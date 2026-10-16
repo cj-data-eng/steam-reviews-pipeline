@@ -1,10 +1,18 @@
 import argparse
+import io
+import json
+import os
 import re
 from importlib.metadata import version
 
+import boto3
+import joblib
+import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, DoubleType, StringType, StructField, StructType
+
+MODEL_NAME = "review_recommend_tfidf_lr"
 
 THEMES = {
     "cheating": [r"\bcheat", r"\bhack", r"aimbot", r"wallhack", r"\bvac\b", r"anti-?cheat", r"\bsmurf"],
@@ -39,6 +47,16 @@ ENRICH_SCHEMA = StructType(
 )
 
 
+def load_latest_model(bucket):
+    s3 = boto3.client("s3", endpoint_url=os.environ.get("S3_ENDPOINT_URL"))
+    latest = json.loads(
+        s3.get_object(Bucket=bucket, Key=f"models/{MODEL_NAME}/latest.json")["Body"].read()
+    )
+    ver = latest["version"]
+    body = s3.get_object(Bucket=bucket, Key=f"models/{MODEL_NAME}/{ver}/model.joblib")["Body"].read()
+    return joblib.load(io.BytesIO(body)), ver
+
+
 def build_spark():
     return (
         SparkSession.builder.appName("steam_reviews_gold")
@@ -63,12 +81,18 @@ def main(app_id, bucket):
     spark = build_spark()
     enrich_udf = F.udf(enrich, ENRICH_SCHEMA)
 
+    model, model_ver = load_latest_model(bucket)
+    bc_model = spark.sparkContext.broadcast(model)
+
+    @F.pandas_udf("double")
+    def recommend_prob(texts: pd.Series) -> pd.Series:
+        return pd.Series(bc_model.value.predict_proba(texts.fillna("").astype(str))[:, 1])
+
     silver = spark.read.parquet(f"s3a://{bucket}/silver/reviews/app_id={app_id}")
-    score = F.col("e.compound")
 
     enriched = (
         silver.withColumn("e", enrich_udf("review_text"))
-        .withColumn("sentiment_score", score)
+        .withColumn("sentiment_score", F.col("e.compound"))
         .withColumn("themes", F.col("e.themes"))
         .drop("e")
         .withColumn(
@@ -79,6 +103,9 @@ def main(app_id, bucket):
         )
         .withColumn("model_name", F.lit("vader"))
         .withColumn("model_version", F.lit(version("vaderSentiment")))
+        .withColumn("recommend_prob", recommend_prob("review_text"))
+        .withColumn("recommend_model", F.lit(MODEL_NAME))
+        .withColumn("recommend_model_version", F.lit(model_ver))
         .withColumn("enriched_at", F.current_timestamp())
     )
     enriched.cache()
@@ -96,6 +123,7 @@ def main(app_id, bucket):
     daily = by_theme.groupBy("review_date", "theme").agg(
         F.count("*").alias("review_count"),
         F.round(F.avg("sentiment_score"), 3).alias("avg_sentiment"),
+        F.round(F.avg("recommend_prob"), 3).alias("avg_recommend_prob"),
         F.round(F.avg(F.col("voted_up").cast("int")), 3).alias("pct_recommended"),
     )
     daily.write.mode("overwrite").parquet(
@@ -104,11 +132,7 @@ def main(app_id, bucket):
 
     total = enriched.count()
     themed = enriched.filter(F.size("themes") > 0).count()
-    scored = enriched.filter("sentiment_label != 'neutral'")
-    n_scored = scored.count()
-    agree = scored.filter((F.col("sentiment_label") == "positive") == F.col("voted_up")).count()
-    rate = round(agree / n_scored, 3) if n_scored else None
-    print(f"gold rows={total} themed={themed} non_neutral={n_scored} agreement_with_voted_up={rate}")
+    print(f"gold rows={total} themed={themed} recommend_model_version={model_ver}")
     spark.stop()
 
 

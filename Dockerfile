@@ -5,4 +5,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 USER airflow
-RUN pip install --no-cache-dir pyspark==3.5.3 vaderSentiment==3.3.2
+RUN pip install --no-cache-dir "numpy<2" scikit-learn==1.5.2 joblib pyarrow pyspark==3.5.3 vaderSentiment==3.3.2

@@ -3,6 +3,12 @@ from datetime import datetime
 from airflow.decorators import dag, task
 from airflow.operators.bash import BashOperator
 
+SPARK_BASE = (
+    "spark-submit --master 'local[*]' "
+    "--packages org.apache.hadoop:hadoop-aws:3.3.4 "
+    "--conf spark.jars.ivy=/tmp/ivy "
+)
+
 
 @dag(
     dag_id="steam_reviews_extract",
@@ -10,7 +16,7 @@ from airflow.operators.bash import BashOperator
     schedule=None,
     catchup=False,
     params={"app_id": 730, "max_pages": 3},
-    tags=["steam", "raw", "silver"],
+    tags=["steam", "raw", "silver", "gold", "ml"],
 )
 def steam_reviews_extract():
     @task
@@ -22,27 +28,21 @@ def steam_reviews_extract():
 
     spark_silver = BashOperator(
         task_id="spark_silver",
-        bash_command=(
-            "spark-submit --master 'local[*]' "
-            "--packages org.apache.hadoop:hadoop-aws:3.3.4 "
-            "--conf spark.jars.ivy=/tmp/ivy "
-            "/opt/airflow/spark_jobs/silver_reviews.py "
-            "--app-id {{ params.app_id }}"
-        ),
+        bash_command=SPARK_BASE + "/opt/airflow/spark_jobs/silver_reviews.py --app-id {{ params.app_id }}",
     )
+
+    @task
+    def train_model(**context):
+        from steam_reviews.train import train
+
+        return train(int(context["params"]["app_id"]))
 
     spark_gold = BashOperator(
         task_id="spark_gold",
-        bash_command=(
-            "spark-submit --master 'local[*]' "
-            "--packages org.apache.hadoop:hadoop-aws:3.3.4 "
-            "--conf spark.jars.ivy=/tmp/ivy "
-            "/opt/airflow/spark_jobs/gold_reviews.py "
-            "--app-id {{ params.app_id }}"
-        ),
+        bash_command=SPARK_BASE + "/opt/airflow/spark_jobs/gold_reviews.py --app-id {{ params.app_id }}",
     )
 
-    extract_reviews() >> spark_silver >> spark_gold
+    extract_reviews() >> spark_silver >> train_model() >> spark_gold
 
 
 steam_reviews_extract()
