@@ -1,0 +1,9 @@
+train 2398 rows: 2026-10-11 19:03:01+00:00 -> 2026-10-15 08:02:00+00:00
+test  600 rows: 2026-10-15 08:02:29+00:00 -> 2026-10-16 09:55:50+00:00
+share recommended: train 0.836, test 0.767
+always-positive accuracy on test: 0.767
+VADER AUC on test: 0.658
+TF-IDF + LogReg AUC on test: 0.888
+TF-IDF + LogReg accuracy on test: 0.803
+most negative terms: ['cheaters', 'not', 'dont', 'sucks', 'no', 'anticheat', 'unplayable', 'ban', 'cancer', 'ass', 'fix', 'horrible', 'genuine', 'many', 'worst']
+most positive terms: ['best game', 'love', 'gg', 'ww', 'its', 'great', 'playing', 'very', 'nice', 'best', 'playing this', 'enjoyed', 'enjoyed playing', 'fun', 'good']
