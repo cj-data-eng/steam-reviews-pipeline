@@ -1,5 +1,6 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.10.5
+  build: .
+  image: steam-reviews-airflow:latest
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -12,6 +13,7 @@ x-airflow-common: &airflow-common
     AWS_DEFAULT_REGION: eu-west-2
   volumes:
     - ./dags:/opt/airflow/dags
+    - ./spark_jobs:/opt/airflow/spark_jobs
     - ./src:/opt/airflow/src
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins

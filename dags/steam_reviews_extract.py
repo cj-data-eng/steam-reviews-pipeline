@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from airflow.decorators import dag, task
+from airflow.operators.bash import BashOperator
 
 
 @dag(
@@ -9,7 +10,7 @@ from airflow.decorators import dag, task
     schedule=None,
     catchup=False,
     params={"app_id": 730, "max_pages": 3},
-    tags=["steam", "raw"],
+    tags=["steam", "raw", "silver"],
 )
 def steam_reviews_extract():
     @task
@@ -19,7 +20,18 @@ def steam_reviews_extract():
         p = context["params"]
         return extract(int(p["app_id"]), int(p["max_pages"]))
 
-    extract_reviews()
+    spark_silver = BashOperator(
+        task_id="spark_silver",
+        bash_command=(
+            "spark-submit --master 'local[*]' "
+            "--packages org.apache.hadoop:hadoop-aws:3.3.4 "
+            "--conf spark.jars.ivy=/tmp/ivy "
+            "/opt/airflow/spark_jobs/silver_reviews.py "
+            "--app-id {{ params.app_id }}"
+        ),
+    )
+
+    extract_reviews() >> spark_silver
 
 
 steam_reviews_extract()
