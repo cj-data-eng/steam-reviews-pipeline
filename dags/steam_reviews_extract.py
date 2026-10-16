@@ -31,7 +31,18 @@ def steam_reviews_extract():
         ),
     )
 
-    extract_reviews() >> spark_silver
+    spark_gold = BashOperator(
+        task_id="spark_gold",
+        bash_command=(
+            "spark-submit --master 'local[*]' "
+            "--packages org.apache.hadoop:hadoop-aws:3.3.4 "
+            "--conf spark.jars.ivy=/tmp/ivy "
+            "/opt/airflow/spark_jobs/gold_reviews.py "
+            "--app-id {{ params.app_id }}"
+        ),
+    )
+
+    extract_reviews() >> spark_silver >> spark_gold
 
 
 steam_reviews_extract()
